@@ -1,0 +1,44 @@
+name: 仓库保活
+
+on:
+  schedule:
+    # 每周一检查一次，GitHub 定时任务有延迟时仍有多周机会
+    - cron: '23 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: 满 30 天则更新保活时间戳
+        run: |
+          set -euo pipefail
+          file=.github/keepalive.txt
+          now=$(date -u +%s)
+          last=0
+          if [ -f "$file" ]; then
+            last=$(date -u -d "$(cat "$file")" +%s 2>/dev/null || echo 0)
+          fi
+          if [ $((now - last)) -lt 2592000 ]; then
+            echo "距上次保活不足 30 天，跳过"
+            exit 0
+          fi
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > "$file"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$file"
+          git commit -m "chore: keepalive $(date -u +%F)"
+          for i in 1 2 3; do
+            if git push origin master; then
+              exit 0
+            fi
+            git pull --rebase origin master
+          done
+          echo "推送失败" >&2
+          exit 1
